@@ -16,7 +16,7 @@ from model.render_ray import render_rays, log_view_to_tb
 
 import setproctitle
 
-setproctitle.setproctitle('[Train-DeepV3- Just f.')
+setproctitle.setproctitle('[Train - Ours NMR]')
 
 def setup_seed(seed):
     torch.manual_seed(seed)
@@ -47,7 +47,7 @@ def train(args):
     if args.train_dataset == 'srns_dataset':
         logs_folder = os.path.join('/data/SymmNeRF-improved/logs', args.train_dataset, args.train_scene, args.expname)
     else:
-        logs_folder = os.path.join('../logs', args.train_dataset, args.expname)
+        logs_folder = os.path.join('/data/SymmNeRF-improved/logs', args.train_dataset, args.expname)
     print('[Info] Outputs will be saved to {}'.format(logs_folder))
     os.makedirs(logs_folder, exist_ok=True)
 
@@ -79,7 +79,7 @@ def train(args):
                               pin_memory=True,
                               sampler=train_sampler,
                               shuffle=True if train_sampler is None else False)
-
+    
     if args.eval_dataset == 'srns_dataset':
         val_dataset = dataset_dict[args.eval_dataset](args, 'val', scene=args.eval_scene)
     elif args.eval_dataset == 'dvr':
@@ -166,8 +166,7 @@ def train(args):
                 model.warmup_scheduler.dampen()
             else:
                 model.scheduler.step()
-
-
+            
             # scalars_to_log['lr'] = model.scheduler.get_last_lr()[0]
             scalars_to_log['lr'] = model.optimizer.param_groups[0]['lr']
 

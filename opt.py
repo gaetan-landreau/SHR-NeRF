@@ -94,7 +94,7 @@ def config_parser():
     parser.add_argument(
         "--src_view",
         type=str,
-        default=None,
+        default='/root/SymmNeRF-baseline/code/sota/vision_nerf/viewlist/src_dvr.txt',
         help="source view used to extract latent vector",
     )
 
@@ -252,7 +252,7 @@ def config_parser():
         "--enforce_symmetry",
         type=dict,
         default={
-            "status": True,
+            "status": False,
             "on_coarse": False,
             "on_fine": False,
             "concatenate_on_coarse": False,
@@ -299,9 +299,19 @@ def config_parser():
         help = 'Not use the hypernetwork to generate the weights of the NeRF and use a ResNet based MLP instead.'
         
     )
+    parser.add_argument('--add_high_res_skip',
+                        action = 'store_true',
+                        help = "Set to True, use a HighFrequency skip connection in the DeepV3 CNN image feature extractor.")
     
     parser.add_argument('--feature_type',
                         type = str,
-                        default = '[f]',
+                        default = '[f|f_s]',
                         help = 'Describe the feature concatenation that is performed.' ) # [f], [f|f_s], [f,rgb], [f|f_s|rgb]
+    
+    parser.add_argument('--hypernetwork_type',
+                        type=str,
+                        default='base',
+                        help='Set which hypernetwork architectures is used') # base, resnet, ensemble
     return parser
+
+

@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile
       target: torch
 
-    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/srns_dataset/cars/baseline_deepV3/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
+    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/srns_dataset/cars/baselineDeepV3_HRSkip_padZeros/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
     ports:
       - 6809:6006 # For TensorBoard
     working_dir: /root/
@@ -25,7 +25,7 @@ services:
       dockerfile: Dockerfile
       target: torch
 
-    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/srns_dataset/cars/baseline_deepV3_RandomSymm_Naive/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
+    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/srns_dataset/cars/hypernetwork_ensemble_deep_rgb/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
     ports:
       - 6812:6006 # For TensorBoard
     working_dir: /root/
@@ -42,7 +42,7 @@ services:
       dockerfile: Dockerfile
       target: torch
 
-    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/srns_dataset/cars/baseline_DeepV3_RGB/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
+    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/dvr/sn64_oursSkipHR/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
     ports:
       - 6813:6006 # For TensorBoard
     working_dir: /root/
@@ -51,7 +51,7 @@ services:
       - type: bind
         source: /data1/gaetan/PhD/datasets/
         target: /data/
-  
+
   main:
     image: gaetanlandreau/pytorch:nvs
     build:
