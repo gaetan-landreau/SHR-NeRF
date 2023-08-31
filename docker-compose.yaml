@@ -1,0 +1,95 @@
+version: "3.5"
+
+services:
+  tb :
+    image: gaetanlandreau/pytorch:nvs
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: torch
+
+    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/srns_dataset/cars/baseline_deepV3/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
+    ports:
+      - 6809:6006 # For TensorBoard
+    working_dir: /root/
+
+    volumes:
+      - type: bind
+        source: /data1/gaetan/PhD/datasets/
+        target: /data/
+
+  tb2 :
+    image: gaetanlandreau/pytorch:nvs
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: torch
+
+    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/srns_dataset/cars/baseline_deepV3_RandomSymm_Naive/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
+    ports:
+      - 6812:6006 # For TensorBoard
+    working_dir: /root/
+
+    volumes:
+      - type: bind
+        source: /data1/gaetan/PhD/datasets/
+        target: /data/
+
+  tb3 :
+    image: gaetanlandreau/pytorch:nvs
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: torch
+
+    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/srns_dataset/cars/baseline_DeepV3_RGB/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
+    ports:
+      - 6813:6006 # For TensorBoard
+    working_dir: /root/
+
+    volumes:
+      - type: bind
+        source: /data1/gaetan/PhD/datasets/
+        target: /data/
+  
+  main:
+    image: gaetanlandreau/pytorch:nvs
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: torch
+
+    restart: always
+    shm_size: '4gb'
+    
+    command: "jupyter-lab --ip=0.0.0.0 --allow-root --no-browser"  
+    #deploy:
+      #resources:
+        #reservations:
+          #devices:
+            #- driver: nvidia
+              #count: 2
+              #capabilities: [gpu]
+    ports:
+      - 80:8888 # For JupyterLab 
+    working_dir: /root/
+
+    environment:
+      - AWS_PROFILE=rd
+      - PASSWORD=password
+    
+    volumes:
+      # Jupyter password 
+      - type: bind
+        source: /home/gaetan/.jupyter
+        target: /root/.jupyter
+
+      # SymmNeRF- Baseline
+      - type: bind
+        source: /home/gaetan/SymmNeRF-improved/
+        target: /root/SymmNeRF-baseline
+        
+      # Datadrive on Athena. 
+      - type: bind
+        source: /data1/gaetan/PhD/datasets/
+        target: /data/

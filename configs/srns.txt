@@ -1,0 +1,6 @@
+
+N_rand = 256
+batch_size = 4
+local_feature_ch = 256
+white_bkgd = True
+num_local_layers = 2 
