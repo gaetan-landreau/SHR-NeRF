@@ -1,7 +1,7 @@
-expname = sn64
+expname = sn64_oursSkipHR
 distributed = False
 
-datadir = '/data3/lixingyi/dataset/NMR_Dataset/'
+datadir = '/data/NMR_Dataset/'
 train_dataset = 'dvr'
 eval_dataset = 'dvr'
 
@@ -12,3 +12,14 @@ N_rand = 256
 batch_size = 4
 
 white_bkgd = True
+
+local_feature_ch = 576
+use_deepLabv3 = True
+latent_dim = 256
+white_bkgd = True
+num_local_layers = 2 
+add_high_res_skip = True
+
+N_importance = 0
+N_samples = 64
+

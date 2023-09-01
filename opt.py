@@ -247,71 +247,17 @@ def config_parser():
         help="Prepend category id to object id. Specify if model fits multiple categories.",
     )
 
-    # Our own new arguments.
-    parser.add_argument(
-        "--enforce_symmetry",
-        type=dict,
-        default={
-            "status": False,
-            "on_coarse": False,
-            "on_fine": False,
-            "concatenate_on_coarse": False,
-            "concatenate_on_fine": False,
-        },
-        help="Enforce symmetry in the model",
-    )
-
     parser.add_argument("--local_feature_ch", type=int, default=256)
 
-    parser.add_argument(
-        "--use_first_layer_as_F",
-        action="store_true",
-        help="Set to True to use the very first layer1 output as the local feature embedding.",
-    )
-    parser.add_argument(
-        "--learnable_feature_upsampling",
-        default={"use": False, "type": None},
-        help="Set use to True to use learnable upsampling convolution layers instead of bilinear upsampling.",
-    )
-    
-    parser.add_argument(
-        "--cosine_mod",
-        default = {"use":False,
-                   'type_mod':'global_feature_mod',
-                   "learn_through_hypernetwork":False,
-                   "G": 8}, 
-        help= "Use the cosine similarity modulation in the HyperNetwork.")  # type_mod = [local_feature_mod,global_feature_mod,discard_local_feature]
     
     parser.add_argument(
         "--use_deepLabv3",
         action="store_true",
         help="If set, use DeepLabv3 as the feature extractor.")
     
-    parser.add_argument(
-        "--use_ray_transformer",
-        action="store_true",
-        help='Use a RayTransformer to compute the density value.'
-    )
-    
-    parser.add_argument(
-        "--discard_hypernetworks",
-        action = "store_true",
-        help = 'Not use the hypernetwork to generate the weights of the NeRF and use a ResNet based MLP instead.'
-        
-    )
     parser.add_argument('--add_high_res_skip',
                         action = 'store_true',
                         help = "Set to True, use a HighFrequency skip connection in the DeepV3 CNN image feature extractor.")
     
-    parser.add_argument('--feature_type',
-                        type = str,
-                        default = '[f|f_s]',
-                        help = 'Describe the feature concatenation that is performed.' ) # [f], [f|f_s], [f,rgb], [f|f_s|rgb]
-    
-    parser.add_argument('--hypernetwork_type',
-                        type=str,
-                        default='base',
-                        help='Set which hypernetwork architectures is used') # base, resnet, ensemble
     return parser
-
 

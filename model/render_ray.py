@@ -87,7 +87,7 @@ def sample_pdf(bins, weights, N_samples, det=False):
     return samples
 
 
-def run_network(inputs, viewdirs, networks, embed_fn, embeddirs_fn, local_feature,cosine_mod,ret=None):
+def run_network(inputs, viewdirs, networks, embed_fn, embeddirs_fn, local_feature,ret=None):
     inputs_flat = torch.reshape(inputs, [inputs.shape[0], -1, inputs.shape[-1]])
     embedded = embed_fn(inputs_flat)
 
@@ -100,32 +100,11 @@ def run_network(inputs, viewdirs, networks, embed_fn, embeddirs_fn, local_featur
     if local_feature is not None:
         embedded = torch.cat([embedded, local_feature], -1)
         
-    if cosine_mod['use']:
-        #print(f'Shape of embedded: {embedded.shape}')
-        #print(f'Shape of module_with_cosine: {module_with_cosine["cs"].shape}')
-        #print(f'Shape of local_feature: {local_feature.shape}')
-        embedded = torch.cat([embedded, cosine_mod['cs']], -1)
         
     nerf = networks['nerf']
     outputs_flat = nerf(embedded)
-    
-    ray_transformer = networks['ray_transformer'] 
-    
-    if ray_transformer is not None:
-        alpha_raw = outputs_flat[..., 3:]
-        
-        # From MatchNeRF 
-        mask = (ret['uv'] > -1.0)*(ret['uv']<1.0)
-        mask = (mask[...,0]*mask[...,1]).float()
-        
-        num_valid_obs = torch.sum(mask, dim=-1, keepdim=True)
-        
-        _,_,alpha = ray_transformer(alpha_raw,alpha_raw,alpha_raw,mask=(num_valid_obs>1).float())
-        #print(f'Shape of alpha: {alpha.shape}')
-        outputs_flat = torch.cat([outputs_flat[..., :3], alpha], -1)
 
     outputs = torch.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
-    #print(f'Re-shaped output shape: {outputs.shape}')
     return outputs
 
 
@@ -137,6 +116,7 @@ def run_nerf_through_hypernetwork(pts, viewdirs, model,ret_features,latent_vecto
 
       
         feature_type = model.feature_type
+        hypernetwork_type = model.hypernetwork_type
         
         local_feature = build_local_feature(ret_features,feature_type)
         
@@ -145,10 +125,13 @@ def run_nerf_through_hypernetwork(pts, viewdirs, model,ret_features,latent_vecto
         assert which_nerf in ['coarse','fine']
         nerf_layers = model.hypernetwork(latent_vector) if which_nerf =='coarse' else model.hypernetwork_fine(latent_vector)
         
+        
         nerf = lambda x: run_nerf_symm_local(x, nerf_layers=nerf_layers, input_ch=model.input_ch,
                                                     input_ch_views=model.input_ch_views,
                                                     local_feature_ch=_feat_ch,
                                                     cosine_mod = {'use':False})
+                                       
+        
         networks['nerf'] = nerf
 
         raw = run_network(pts, viewdirs, networks,
@@ -157,36 +140,7 @@ def run_nerf_through_hypernetwork(pts, viewdirs, model,ret_features,latent_vecto
         
         return raw
     
-def run_nerf_through_resnet(pts,ray_batch, model,ret_features,which_nerf):
-        
-        N_rays = pts.shape[1]
-        N_samples = pts.shape[2]
-        batch = pts.shape[0]
-        
-        f = ret_features['feat']
-        f_s= ret_features['feat_s']
-        rgb = ret_features['rgb']
-        
-        xyz_c = ret_features['xyz_c'] # 3D points sampled from target view expressed in source view coordinates.
-        xyz_c = rearrange(xyz_c,'b (nr ns) ch -> b nr ns ch', nr=N_rays,ns= N_samples)
-        
-        dirs = repeat(ray_batch['rays_d'], 'b nr c -> b nr ns c', ns=N_samples)
-        dir_c = model.feature_net.compute_dir(dirs, ray_batch)  
-        
-        rgb= rearrange(rgb,'b (nr ns) rgb -> b nr ns rgb', nr=N_rays,ns= N_samples)
-        feat = rearrange(f,'b (nr ns) c -> b nr ns c', nr=N_rays,ns= N_samples)
-        feat_s = rearrange(f_s,'b (nr ns) c -> b nr ns c', nr=N_rays,ns= N_samples)
-     
-        feat_in = torch.cat([feat,feat_s,rgb,dir_c],-1)
-        
-        assert which_nerf in ['coarse','fine']
-        raw = model.coarse_net(xyz_c.flatten(0, 1), feat_in.flatten(0, 1)) if which_nerf =='coarse' else \
-              model.fine_net(xyz_c.flatten(0,1),feat_in.flatten(0,1))
-        raw = raw.reshape([batch, N_rays, N_samples, 4])
-        
-        return raw
-    
-def render_rays(ray_batch, model, device, latent_vector,enforceSymm, N_samples,cosine_mod,use_ray_transformer, lindisp=False, N_importance=0,
+def render_rays(ray_batch, model, device, latent_vector, N_samples,lindisp=False, N_importance=0,
                 det=False, raw_noise_std=0., white_bkgd=False, shape_codes=None, texture_codes=None, noise=None):
     ret = {'outputs_coarse': None,
            'outputs_fine': None,
@@ -205,26 +159,18 @@ def render_rays(ray_batch, model, device, latent_vector,enforceSymm, N_samples,c
                                                     device=device,
                                                     N_samples=N_samples, lindisp=lindisp, det=det)
     
-    use_hypernetworks = hasattr(model, 'hypernetwork')
     
     ret_coarse = model.feature_net.index(pts,ray_batch)
     
-    symmetrize_sampling = (enforceSymm['status'] and model.mode == 'train' and np.random.rand() < 0.40)
     
-    if symmetrize_sampling:
-        M = model.get_symmetry_matrix()
-        ptsS, viewdirsS = get_symmetric_points_and_directions(pts,viewdirs,M)
-        
-    raw_coarse = run_nerf_through_hypernetwork(pts, viewdirs, model,ret_coarse,latent_vector,which_nerf ='coarse') if (use_hypernetworks and not symmetrize_sampling) else \
-                 run_nerf_through_hypernetwork(ptsS, viewdirsS, model,ret_coarse,latent_vector,which_nerf ='coarse') if (use_hypernetworks and symmetrize_sampling) else \
-                 run_nerf_through_resnet(pts, ray_batch, model,ret_coarse,which_nerf ='coarse')
+    raw_coarse = run_nerf_through_hypernetwork(pts, viewdirs, model,ret_coarse,latent_vector,which_nerf ='coarse') 
                 
-    
+                
     outputs_coarse = raw2outputs(raw_coarse, z_vals, ray_batch['rays_d'],
                                  device=device,
                                  raw_noise_std=raw_noise_std,
                                  white_bkgd=white_bkgd,
-                                 use_hypernetworks=use_hypernetworks)
+                                 )
 
     ret['outputs_coarse'] = outputs_coarse
 
@@ -240,26 +186,21 @@ def render_rays(ray_batch, model, device, latent_vector,enforceSymm, N_samples,c
         
         ret_fine = model.feature_net.index(pts, ray_batch)
         
-        if symmetrize_sampling:
-            M = model.get_symmetry_matrix()
-            ptsS, viewdirsS = get_symmetric_points_and_directions(pts,viewdirs,M)
-           
-        raw_fine = run_nerf_through_hypernetwork(pts, viewdirs, model,ret_fine,latent_vector,which_nerf ='fine') if (use_hypernetworks and not symmetrize_sampling) else \
-                   run_nerf_through_hypernetwork(ptsS, viewdirsS, model,ret_fine,latent_vector,which_nerf ='fine') if (use_hypernetworks and symmetrize_sampling) else \
-                   run_nerf_through_resnet(pts, ray_batch, model,ret_fine,which_nerf ='fine')
+        
+        raw_fine = run_nerf_through_hypernetwork(pts, viewdirs, model,ret_fine,latent_vector,which_nerf ='fine') 
       
         #####################################################################################
         outputs_fine = raw2outputs(raw_fine, z_vals, ray_batch['rays_d'],
                                    device=device,
                                    raw_noise_std=raw_noise_std,
                                    white_bkgd=white_bkgd,
-                                   use_hypernetworks=use_hypernetworks)
+                                   )
         ret['outputs_fine'] = outputs_fine
 
     return ret
 
 
-def raw2outputs(raw, z_vals, rays_d, device, raw_noise_std=0., white_bkgd=False,use_hypernetworks=True):
+def raw2outputs(raw, z_vals, rays_d, device, raw_noise_std=0., white_bkgd=False,):
     raw2alpha = lambda raw, dists, act_fn=F.relu: 1. - torch.exp(-act_fn(raw) * dists)
 
     dists = z_vals[..., 1:] - z_vals[..., :-1]
@@ -267,7 +208,7 @@ def raw2outputs(raw, z_vals, rays_d, device, raw_noise_std=0., white_bkgd=False,
 
     dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
 
-    rgb = torch.sigmoid(raw[..., :3])  if use_hypernetworks else raw[...,:3] # [N_rays, N_samples, 3]
+    rgb = torch.sigmoid(raw[..., :3])   # [N_rays, N_samples, 3]
     noise = 0.
     if raw_noise_std > 0.:
         noise = torch.randn(raw[..., 3].shape) * raw_noise_std
@@ -298,7 +239,7 @@ def raw2outputs(raw, z_vals, rays_d, device, raw_noise_std=0., white_bkgd=False,
     return ret
 
 
-def render_single_image(ray_sampler, ray_batch, model, device, latent_vector,enforceSymm,cosine_mod, use_ray_transformer,chunk_size, N_samples,
+def render_single_image(ray_sampler, ray_batch, model, device, latent_vector,chunk_size, N_samples,
                         lindisp=False, N_importance=0, det=False, white_bkgd=False, shape_codes=None, texture_codes=None,
                         noise=None):
     all_ret = {'outputs_coarse': {},
@@ -323,10 +264,9 @@ def render_single_image(ray_sampler, ray_batch, model, device, latent_vector,enf
                           model=model,
                           device=device,
                           latent_vector=latent_vector,
-                          enforceSymm = enforceSymm,
+                         
                           N_samples=N_samples,
-                          cosine_mod=cosine_mod,
-                          use_ray_transformer=use_ray_transformer,
+                         
                           lindisp=lindisp,
                           N_importance=N_importance,
                           det=det,
@@ -412,9 +352,6 @@ def log_view_to_tb(writer, global_step, args, model, device, ray_sampler, render
                                   model=model,
                                   device=device,
                                   latent_vector=latent_vector,
-                                  enforceSymm = args.enforce_symmetry,
-                                  cosine_mod = args.cosine_mod,
-                                  use_ray_transformer=args.use_ray_transformer,
                                   chunk_size=args.chunk_size,
                                   N_samples=args.N_samples,
                                   lindisp=args.lindisp,

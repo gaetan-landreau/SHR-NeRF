@@ -1,6 +1,9 @@
 
 N_rand = 256
 batch_size = 4
-local_feature_ch = 256
+local_feature_ch = 576
+use_deepLabv3 =True
+latent_dim = 256
 white_bkgd = True
 num_local_layers = 2 
+

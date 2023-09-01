@@ -69,6 +69,7 @@ def get_rays_from_poses(H, W, K, poses):
         [(i - K[0][2]) / K[0][0], -(j - K[1][2]) / K[1][1], -torch.ones_like(i)], -1
     ).repeat(num_images, 1, 1, 1)
     # dirs /= torch.norm(dirs, dim=-1).unsqueeze(-1)
+    #print(dirs.shape, poses.shape)
     rays_d = torch.matmul(poses[:, None, None, :3, :3], dirs.unsqueeze(-1))[
         :, :, :, :, 0
     ]

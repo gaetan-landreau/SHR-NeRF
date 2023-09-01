@@ -45,9 +45,9 @@ def train(args):
     device = "cuda:{}".format(args.local_rank)
 
     if args.train_dataset == 'srns_dataset':
-        logs_folder = os.path.join('/data/SymmNeRF-improved/logs', args.train_dataset, args.train_scene, args.expname)
+        logs_folder = os.path.join('/data/SHR-NeRF/logs', args.train_dataset, args.train_scene, args.expname)
     else:
-        logs_folder = os.path.join('/data/SymmNeRF-improved/logs', args.train_dataset, args.expname)
+        logs_folder = os.path.join('/data/SHR-NeRF/logs', args.train_dataset, args.expname)
     print('[Info] Outputs will be saved to {}'.format(logs_folder))
     os.makedirs(logs_folder, exist_ok=True)
 
@@ -125,10 +125,7 @@ def train(args):
                               model=model,
                               device=device,
                               latent_vector=latent_vector,
-                              enforceSymm = args.enforce_symmetry,
                               N_samples=args.N_samples,
-                              cosine_mod = args.cosine_mod,
-                              use_ray_transformer = args.use_ray_transformer,
                               lindisp=args.lindisp,
                               N_importance=args.N_importance,
                               det=args.det,
@@ -143,20 +140,7 @@ def train(args):
                 fine_loss = criterion(ret['outputs_fine']['rgb'], ray_batch['rgb'])
                 loss += fine_loss
 
-            if args.enforce_symmetry['status']:
-                if args.enforce_symmetry['on_coarse']:
-                    loss_S_coarse = criterion(ret['outputs_coarse_s']['rgb'], ray_batch['rgb'])
-                    loss_S_coarse_additional_reg =  0.5*criterion(ret['outputs_coarse_s']['rgb'],ret['outputs_coarse']['rgb'])
-
-                    loss += loss_S_coarse + loss_S_coarse_additional_reg
-
-                if args.enforce_symmetry['on_fine']:
-                    loss_S_fine =  criterion(ret['outputs_fine_s']['rgb'], ray_batch['rgb'])
-                    loss_S_fine_additional_reg =  0.5*criterion(ret['outputs_fine_s']['rgb'],ret['outputs_fine']['rgb'])
-
-                    loss += loss_S_fine + loss_S_fine_additional_reg
-
-
+            
             loss.backward()
             scalars_to_log['loss'] = loss.item()
             model.optimizer.step()

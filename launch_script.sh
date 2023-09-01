@@ -1,1 +1,0 @@
-CUDA_VISIBLE_DEVICES=0 python train.py --config configs/srns.txt --expname baseline_light --model hypernerf_symm_local --N_rand 256 --N_importance 64 --N_iters 500000 --num_local_layers=2 --train_scene cars --eval_scene cars --use_first_layer_as_F --local_feature_ch=128

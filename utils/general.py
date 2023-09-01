@@ -275,3 +275,27 @@ def pose_spherical(theta, phi, radius):
     )
 
     return c2w
+
+def get_class_instance_dict(class_name = 'chair'):
+    import json 
+    import tqdm 
+    with open('/data/pix3d/pix3d.json') as f:
+        data = json.load(f)
+   
+    MAIN_KEYS = ['img','img_size','mask','rot_mat','trans_mat','focal_length','cam_position','inplane_rotation']
+    instance_list = []
+    
+    for d in tqdm.tqdm(data): 
+        if d['category'] == 'chair':
+            current_imgs_list = [instance['img'] for instance in instance_list]
+            if d['img'] in current_imgs_list:
+                continue 
+            tmp_dict = dict.fromkeys(MAIN_KEYS, None)
+            for key in MAIN_KEYS:
+                tmp_dict[f'{key}'] = d[f'{key}']
+            instance_list.append(tmp_dict)
+    # Save the chair_dict to a json file
+    with open(f'/data/pix3d/{class_name}_dict.json', 'w') as fp:
+        json.dump(instance_list, fp)
+        
+        

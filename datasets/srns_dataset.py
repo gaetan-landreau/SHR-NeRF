@@ -11,6 +11,144 @@ import numpy as np
 from utils.data_utils import get_image_to_tensor, get_mask_to_tensor
 from utils.general import parse_comma_separated_integers, pick
 
+class SRNsSpesificInstance(Dataset):
+    def __init__(
+        self,
+        args,
+        instance_name,
+        scene="cars",
+        image_size=(128, 128),
+        world_scale=1.0
+    ):
+        super().__init__()
+        self.args = args
+        self.instance = instance_name
+        self.folder_path = os.path.join(args.datadir, scene + "_{}".format(args.mode))
+        
+        self.image_to_tensor = get_image_to_tensor()
+        self.mask_to_tensor = get_mask_to_tensor()
+        self.image_size = image_size
+        self.world_scale = world_scale
+        
+        self.intrinsic_file = os.path.join(self.folder_path, self.instance, "intrinsics.txt")
+        
+        self.all_imgs = sorted(glob.glob(os.path.join(self.folder_path, self.instance, "rgb", "*")))
+        self.all_poses = sorted(glob.glob(os.path.join(self.folder_path, self.instance, "pose", "*")))
+        
+        self._coord_trans = torch.diag(
+            torch.tensor([1, -1, -1, 1], dtype=torch.float32)
+        )
+
+        if scene == "chairs":
+            self.z_near = 1.25
+            self.z_far = 2.75
+        else:
+            self.z_near = 0.8
+            self.z_far = 1.8
+        
+    def __len__(self):
+        return len(self.all_imgs)
+    
+    def __getitem__(self, index):
+    
+        with open(self.intrinsic_file, "r") as intrinsics:
+            lines = intrinsics.readlines()
+            focal, cx, cy, _ = map(float, lines[0].split())
+            H, W = map(int, lines[-1].split())
+
+        all_imgs = []
+        all_poses = []
+        all_masks = []
+        all_bboxes = []
+        for rgb_path, pose_path in zip(self.all_imgs, self.all_poses):
+            img = imageio.imread(rgb_path)[..., :3]
+            img_tensor = self.image_to_tensor(img)
+            mask = (img != 255).all(axis=-1)[..., None].astype(np.uint8) * 255
+            mask_tensor = self.mask_to_tensor(mask)
+
+            pose = torch.from_numpy(
+                np.loadtxt(pose_path, dtype=np.float32).reshape(4, 4)
+            )
+            pose = pose @ self._coord_trans
+
+            rows = np.any(mask, axis=1)
+            cols = np.any(mask, axis=0)
+            rnz = np.where(rows)[0]
+            cnz = np.where(cols)[0]
+            # if len(rnz) == 0:
+            #     raise RuntimeError("ERROR: Bad image at", rgb_path, "please investigate!")
+            try:
+                rmin, rmax = rnz[[0, -1]]
+                cmin, cmax = cnz[[0, -1]]
+                bbox = torch.tensor([cmin, rmin, cmax, rmax], dtype=torch.float32)
+            except:
+                bbox = torch.tensor([0, 0, 0, 0], dtype=torch.float32)
+
+            all_imgs.append(img_tensor)
+            all_masks.append(mask_tensor)
+            all_poses.append(pose)
+            all_bboxes.append(bbox)
+
+        all_imgs = torch.stack(all_imgs)
+        all_poses = torch.stack(all_poses)
+        all_masks = torch.stack(all_masks)
+        all_bboxes = torch.stack(all_bboxes)
+
+        if (H, W) != self.image_size:
+            scale = self.image_size[0] / H
+            focal *= scale
+            cx *= scale
+            cy *= scale
+            all_bboxes *= scale
+
+            all_imgs = F.interpolate(all_imgs, size=self.image_size, mode="area")
+            all_masks = F.interpolate(all_masks, size=self.image_size, mode="area")
+
+        # H, W = self.image_size
+
+        if self.world_scale != 1.0:
+            focal *= self.world_scale
+            all_poses[:, :3, 3] *= self.world_scale
+
+        if self.args.src_view is None:
+            src_view = np.random.choice(len(self.all_imgs), 1)[0]
+        else:
+            src_view = int(self.args.src_view)
+            
+        src_img = all_imgs[src_view : src_view + 1]
+        src_pose = all_poses[src_view : src_view + 1]
+        src_path = self.all_imgs[src_view]
+
+
+        K = np.array(
+            [[focal, 0.0, cx, 0.0], [0.0, focal, cy, 0], [0.0, 0, 1, 0], [0, 0, 0, 1]]
+        ).astype(np.float32)
+        intrinsics = torch.from_numpy(K).view(1, 4, 4).repeat(len(all_imgs), 1, 1)
+        depth_range = (
+            torch.tensor([self.z_near, self.z_far], dtype=torch.float32)
+            .view(1, -1)
+            .repeat(len(all_imgs), 1)
+        )
+
+        ret = {
+            "obj_dir": self.instance,
+            "index": index,
+            "intrinsics": intrinsics,
+            "rgb_paths": self.all_imgs,
+            "images": all_imgs,
+            "masks": all_masks,
+            "bboxes": all_bboxes,
+            "poses": all_poses,
+            "depth_range": depth_range,
+            "src_view": src_view,
+            "src_path": src_path,
+            "src_image": src_img,
+            # "src_mask": src_mask,
+            "src_pose": src_pose,
+            # "src_bbox": src_bbox
+        }
+
+        return ret
 
 class SRNsDataset(Dataset):
     def __init__(
@@ -133,7 +271,7 @@ class SRNsDataset(Dataset):
             src_view = np.random.choice(len(rgb_paths), 1)[0]
         else:
             src_view = int(self.args.src_view)
-
+            
         if self.specific_observation_idx is not None:
             src_img = all_imgs
             src_pose = all_poses
@@ -141,8 +279,7 @@ class SRNsDataset(Dataset):
         else:
             src_img = all_imgs[src_view : src_view + 1]
             src_pose = all_poses[src_view : src_view + 1]
-            # src_mask = all_masks[src_view:src_view+1]
-            # src_bbox = all_bboxes[src_view:src_view+1]
+          
             src_path = rgb_paths[src_view]
 
 

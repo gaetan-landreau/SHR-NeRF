@@ -92,21 +92,19 @@ class DeepLabV3PlusDecoderHR(torch.nn.Module):
         ) # 128 x 128 x 128
         self.projblock4 = torch.nn.Conv2d(encoder_in_channels, 128, 1)
 
-        # self.block5 = torch.nn.Sequential(
-        #     torch.nn.Conv2d(in_channels // 2, out_channels, 3, padding=1)
-        # ) # 1024 x 128 x 128
 
     def forward(self, *features):
         aspp_features = self.aspp(features[-1])
         aspp_features = self.up(aspp_features)
         high_res_features = self.block1(features[-4])
         concat_features = torch.cat([aspp_features, high_res_features], dim=1)
-        fused_features = self.block2(concat_features)
-
-        fused_features = self.block3(fused_features) + self.projblock3(features[-5])
-        fused_features = self.block4(fused_features) + self.projblock4(features[-6])
-
-        return fused_features
+        fused_features_tmp = self.block2(concat_features)
+        
+        fused_features = self.block3(fused_features_tmp) + self.projblock3(features[-5])
+        
+        fused_features_tmp = self.block4(fused_features) + self.projblock4(features[-6])
+       
+        return fused_features_tmp
 
 
 def get_encoder_deeplab(in_channels=3, out_channels=16*16, replace_decoder=False, encoder_name='resnet34'):
@@ -125,9 +123,8 @@ def get_encoder_deeplab(in_channels=3, out_channels=16*16, replace_decoder=False
 
     return remove_bn_dropout(model)
 
-
 class deepLabv3Plus(nn.Module):
-    def __init__(self,in_channels=3, out_channels=16*16, encoder_name='resnet34'):
+    def __init__(self,in_channels=3, out_channels=16*16, encoder_name='resnet34',**kwargs):
         
         super(deepLabv3Plus, self).__init__()
         
@@ -142,24 +139,32 @@ class deepLabv3Plus(nn.Module):
         
         self.model = remove_bn_dropout(self.model)
         
+  
+        self.add_high_res_skip = kwargs.get('add_high_res_skip',False)
+        
+        # Add an additional CNN for high res. skip connection. 
+        if self.add_high_res_skip: 
+            self.conv_map = nn.Conv2d(3, 32, kernel_size=7, stride=1, padding=3)
+        
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512,out_channels)
-    
     
         self.register_buffer("latent", torch.empty(1, 1, 1, 1), persistent=False)
         self.register_buffer("latent_scaling", torch.empty(2, dtype=torch.float32), persistent=False)
         
         self.index_interp="bilinear"
-        self.index_padding="border"
+        self.index_padding="zeros"
         
         
     def forward(self,x):
         
         latents = self.model.encoder(x)
         latent_inter = self.model.decoder(*latents)
-        
+       
         self.latent = self.model.segmentation_head(latent_inter)
-        
+        if self.add_high_res_skip:
+            hr_skip = self.conv_map(x)
+            self.latent = torch.concat([self.latent, hr_skip], dim = 1)
         self.latent_scaling[0] = self.latent.shape[-1]
         self.latent_scaling[1] = self.latent.shape[-2]
         self.latent_scaling = self.latent_scaling / (self.latent_scaling - 1) * 2.0
@@ -168,6 +173,7 @@ class deepLabv3Plus(nn.Module):
         z = torch.flatten(z, 1)
         z = self.fc(z)
 
+            
         return z
     
     
@@ -202,8 +208,8 @@ class deepLabv3Plus(nn.Module):
         src_poses = ray_batch['src_pose']
         intrinsics = ray_batch['intrinsics']
         image_size = ray_batch['image_size']
-        src_image = ray_batch['src_img']
-        
+        src_image = ray_batch['src_img'] 
+      
         xyz_symm = (M @ xyz.unsqueeze(-1))[..., 0]
 
         focal = intrinsics[:, 0, 0].view(-1, 1, 1).repeat(1, xyz.shape[-2], 2)
@@ -211,7 +217,7 @@ class deepLabv3Plus(nn.Module):
         cx = intrinsics[:, 0, 2]
         cy = intrinsics[:, 1, 2]
         c = torch.stack([cx, cy], -1).unsqueeze(1).repeat(1, xyz.shape[-2], 1)
-
+       
         rot = src_poses[:, :3, :3].transpose(1, 2)  # (B, 3, 3)
         trans = -torch.bmm(rot, src_poses[:, :3, 3:])  # (B, 3, 1)
         w2c = torch.cat((rot, trans), dim=-1)  # (B, 3, 4)
@@ -259,3 +265,12 @@ class deepLabv3Plus(nn.Module):
     
         
     
+if __name__ =='__main__':
+    
+    
+    model = deepLabv3Plus()
+    
+    x = torch.zeros(1,3,187, 281)
+    x = torch.zeros(1,3,192, 256)
+    z = model(x)
+    print(z.shape)

@@ -15,7 +15,7 @@ class FCLayer(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(in_features, out_features),
             nn.LayerNorm([out_features]),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(inplace=True),
         )
 
     def forward(self, x):
@@ -57,7 +57,7 @@ class FCBlock(nn.Module):
 
     def _init_weights(self, m):
         if type(m) == nn.Linear:
-            nn.init.kaiming_normal_(m.weight, a=0.0, nonlinearity="relu", mode="fan_in")
+            nn.init.kaiming_normal_(m.weight, a=0.0, nonlinearity="leaky_relu", mode="fan_in")
 
     def forward(self, x):
         return self.net(x)
@@ -113,7 +113,7 @@ class HyperLinear(nn.Module):
     
     def _init_last_hyperlayer(self, m):
         if type(m) == nn.Linear:
-            nn.init.kaiming_normal_(m.weight, a=0.0, nonlinearity="relu", mode="fan_in")
+            nn.init.kaiming_normal_(m.weight, a=0.0, nonlinearity="leaky_relu", mode="fan_in")
             m.weight.data *= 1e-1
 
     def forward(self, hyper_input):
@@ -149,7 +149,7 @@ class HyperLayer(nn.Module):
             hyper_hidden_ch=hyper_hidden_ch,
         )
         self.norm_nl = nn.Sequential(
-            nn.LayerNorm([out_ch], elementwise_affine=False), nn.ReLU(inplace=True)
+            nn.LayerNorm([out_ch], elementwise_affine=False), nn.LeakyReLU(inplace=True)
         )
 
     def forward(self, hyper_input):
@@ -158,7 +158,6 @@ class HyperLayer(nn.Module):
         :return: nn.Module; predicted fully connected network.
         """
         return nn.Sequential(self.hyper_linear(hyper_input), self.norm_nl)
-
 
 
 class HyperNetworkSymmLocal(nn.Module):
@@ -174,13 +173,12 @@ class HyperNetworkSymmLocal(nn.Module):
         input_ch_views=3,
         local_feature_ch=1024,
         outermost_linear=False,
-        cosine_mod = {},
-        use_ray_transformer = False
+        **kwargs
     ):
         super().__init__()
+        print('[INFO] Using HyperNetworks to generate the weights of the NeRF. [INFO]')
         self.num_hidden_layers = num_hidden_layers
         self.num_local_layers = num_local_layers
-        self.use_cosine_mod = cosine_mod['use'] and cosine_mod['learn_through_hypernetwork']
        
         if outermost_linear:
             PreconfHyperLinear = partialclass(
@@ -198,8 +196,8 @@ class HyperNetworkSymmLocal(nn.Module):
             hyper_hidden_ch=hyper_hidden_ch,
         )
 
-        self.layers = nn.ModuleList()
-                                          
+        self.layers = nn.ModuleList()        
+                                  
         # local_linears
         for i in range(num_local_layers):
             self.layers.append(
@@ -211,25 +209,22 @@ class HyperNetworkSymmLocal(nn.Module):
         for i in range(num_hidden_layers):
             self.layers.append(PreconfHyperLayer(in_ch=hidden_ch, out_ch=hidden_ch))
         # views_linear
-        self.layers.append(
-            PreconfHyperLayer(in_ch=hidden_ch + input_ch_views, out_ch=hidden_ch)
-        )
 
-        out_ch_alpha = 1 if not use_ray_transformer else 16
+        self.layers.append(
+            PreconfHyperLayer(in_ch=hidden_ch + input_ch_views , out_ch=hidden_ch)
+        )
         if outermost_linear:
             # alpha_linear
-            self.layers.append(PreconfHyperLinear(in_ch=hidden_ch, out_ch=out_ch_alpha))
+            self.layers.append(PreconfHyperLinear(in_ch=hidden_ch, out_ch=1))
             # rgb_linear
             self.layers.append(PreconfHyperLinear(in_ch=hidden_ch, out_ch=3))
         else:
             # alpha_linear
-            self.layers.append(PreconfHyperLayer(in_ch=hidden_ch, out_ch=out_ch_alpha))
+            self.layers.append(PreconfHyperLayer(in_ch=hidden_ch, out_ch=1))
             # rgb_linear
             self.layers.append(PreconfHyperLayer(in_ch=hidden_ch, out_ch=3))
         
-        if self.use_cosine_mod:
-            self.layers.append(PreconfHyperLinear(in_ch=cosine_mod['G'], out_ch=hidden_ch,cosine_mod=True)) # 16 is the dimensionamity of the cosine similarity vector.
-                                        
+                     
     def forward(self, hyper_input):
         net = []
 
@@ -237,13 +232,16 @@ class HyperNetworkSymmLocal(nn.Module):
             net.append(self.layers[i](hyper_input))
         
         local_linears = net[: self.num_local_layers]
+        ret = {
+            "local_linears": local_linears}
+       
+    
         pts_linears = net[
             self.num_local_layers : self.num_local_layers + self.num_hidden_layers + 1
         ]
-        views_linear = net[-3] if not self.use_cosine_mod else net[-4]
-        alpha_linear = net[-2]  if not self.use_cosine_mod else net[-3]
-        rgb_linear = net[-1] if not self.use_cosine_mod else net[-2]
-        cosine_linear = net[-1] if self.use_cosine_mod else None
+        views_linear = net[-3] 
+        alpha_linear = net[-2]  
+        rgb_linear = net[-1] 
 
         ret = {
             "local_linears": local_linears,
@@ -251,34 +249,8 @@ class HyperNetworkSymmLocal(nn.Module):
             "views_linear": views_linear,
             "alpha_linear": alpha_linear,
             "rgb_linear": rgb_linear,
-            "cosine_linear": cosine_linear,
+           
         }
 
         return ret
 
-
-if __name__ == "__main__":
-    import torch
-
-    z = torch.zeros([1, 256]).to("cuda:0")
-
-    hypernetwork = HyperNetworkSymmLocal(
-        hyper_in_ch=256,
-        hyper_num_hidden_layers=1,
-        hyper_hidden_ch=256,
-        hidden_ch=256,
-        num_hidden_layers=3,
-        num_local_layers=3,
-        input_ch=3,
-        input_ch_views=3,
-        local_feature_ch=1024,
-        outermost_linear=True,
-        cosine_mod=True
-    ).to("cuda:0")
-
-    ret = hypernetwork(z)
-    #print(ret)
-    print(ret['local_linears'])
-    print('--'*10)
-    for i in range(len(ret[('pts_linears')])):
-        print(ret['pts_linears'][i])

@@ -25,8 +25,7 @@ class RaySampler(object):
 
         self.src_img = data["src_image"][:, 0]
         self.src_pose = data["src_pose"][:, 0]
-
-
+       
         (
             self.num_objs,  # Batch size
             self.num_views_per_obj, # 50 in the training set. 
@@ -79,17 +78,9 @@ class RaySampler(object):
     def symmetrize_pose(self,M):
         self.render_poses = torch.matmul(M,self.render_poses)
         self.set_rays_and_rgb_gt()
-    # def get_all(self):
-    #     ret = {'ray_o': self.rays_o.cuda(),
-    #            'ray_d': self.rays_d.cuda(),
-    #            'depth_range': self.depth_range.cuda(),
-    #            'camera': self.camera.cuda(),
-    #            'rgb': self.rgb.cuda() if self.rgb is not None else None,
-    #            'src_rgbs': self.src_rgbs.cuda() if self.src_rgbs is not None else None,
-    #            'src_cameras': self.src_cameras.cuda() if self.src_cameras is not None else None,
-    #     }
-    #     return ret
-
+  
+    def get_all_single_image_Stanford(self, index, device):
+        return
     def get_all_single_image(self, index, device):
         select_inds = torch.arange(
             index * self.H * self.W, (index + 1) * self.H * self.W
@@ -115,8 +106,7 @@ class RaySampler(object):
             ),
             "src_img": self.src_img[:1].to(device),
             "src_pose": self.src_pose[:1].to(device),
-            # 'src_mask': self.src_mask[:1].cuda(),
-            # 'src_bbox': self.src_bbox[:1].cuda()
+          
         }
         return ret
 
@@ -148,9 +138,7 @@ class RaySampler(object):
         rgb = []
         selected_indexes = []
         pixs = []
-        #print(f'Value of self.num_objs: {self.num_objs}')
-        #print(f'Shape of self.rgb_gt: {self.rgb_gt.shape}')
-        #print(f'Value of num_views_per_obj: {self.num_views_per_obj}') 
+        
         for obj_idx in range(self.num_objs):
             pix, select_inds = self.sample_random_pixel(obj_idx, N_rand, use_bbox)
 

@@ -2,6 +2,7 @@ import os, time
 import torch
 import numpy as np
 import sys
+import tqdm 
 
 sys.path.append("../")
 from torch.utils.data import DataLoader
@@ -30,7 +31,7 @@ if __name__ == "__main__":
             "../../logs", args.eval_dataset, args.eval_scene, args.expname
         )
     else:
-        logs_folder = os.path.join("../../logs", args.eval_dataset, args.expname)
+        logs_folder = os.path.join("/data/SymmNeRF-improved/logs", args.eval_dataset, args.expname)
     eval_folder = os.path.join(
         logs_folder,
         "eval_" + time.strftime("%m%d", time.localtime())
@@ -65,7 +66,7 @@ if __name__ == "__main__":
     # test_dataset = dataset_dict[args.eval_dataset](args, 'test', scene=args.eval_scene)
 
     test_loader = DataLoader(test_dataset, batch_size=1)
-
+    
     save_prefix = scene_name
 
     total_num = 0
@@ -92,7 +93,8 @@ if __name__ == "__main__":
 
     processed = sorted(glob(os.path.join(eval_folder, "*", "*")))[:-1]
     processed = [os.path.basename(i) for i in processed]
-    for i, data in enumerate(test_loader):
+    
+    for i, data in tqdm.tqdm(enumerate(test_loader)):
         if os.path.basename(data["obj_dir"][0]) in processed:
             continue
         obj = os.path.basename(data["obj_dir"][0])
@@ -124,9 +126,9 @@ if __name__ == "__main__":
             out_dir = os.path.join(out_scene_dir, obj)
         os.makedirs(out_dir, exist_ok=True)
 
-        if args.noise_var > 0.0:
+        if args.raw_noise_std > 0.0:
             w = torch.tensor([1.0, 0.0, 0.0]).reshape(3, 1)
-            noise = torch.randn_like(w) * args.noise_var
+            noise = torch.randn_like(w) * args.raw_noise_std
         else:
             noise = None
 
@@ -146,12 +148,12 @@ if __name__ == "__main__":
             #     render_views = np.arange(ray_sampler.render_imgs[0].shape[0])
 
             for render_view in render_views:
-                ray_batch = ray_sampler.get_all_single_image(render_view)
+                ray_batch = ray_sampler.get_all_single_image(render_view,device=device)
                 file_id = os.path.basename(data["rgb_paths"][render_view][0]).split(
                     "."
                 )[0]
 
-                latent_vector = model.encode(ray_batch)
+                latent_vector = model.encode(ray_batch['src_img'])
 
                 ret = render_single_image(
                     ray_sampler=ray_sampler,
@@ -159,6 +161,9 @@ if __name__ == "__main__":
                     model=model,
                     device=device,
                     latent_vector=latent_vector,
+                    enforceSymm=args.enforce_symmetry,
+                    cosine_mod=args.cosine_mod,
+                    use_ray_transformer = False,
                     chunk_size=args.chunk_size,
                     N_samples=args.N_samples,
                     lindisp=args.lindisp,
@@ -167,7 +172,8 @@ if __name__ == "__main__":
                     white_bkgd=args.white_bkgd,
                     noise=noise,
                 )
-
+               
+               
                 gt_rgb = ray_sampler.render_imgs[0][render_view].permute(1, 2, 0)
                 coarse_pred_rgb = ret["outputs_coarse"]["rgb"].detach().cpu()
                 coarse_err_map = torch.sum(
@@ -188,9 +194,11 @@ if __name__ == "__main__":
                 coarse_psnr = metrics.peak_signal_noise_ratio(
                     coarse_pred_rgb_np, gt_rgb_np, data_range=1
                 )
+                
+                
                 coarse_ssim = metrics.structural_similarity(
-                    coarse_pred_rgb_np, gt_rgb_np, multichannel=True, data_range=1
-                )
+                    coarse_pred_rgb_np, gt_rgb_np,channel_axis = -1,data_range=1)
+                                
                 coarse_lpips = lpips_vgg(
                     coarse_pred_rgb[None, ...].permute(0, 3, 1, 2).float().to(device),
                     gt_rgb[None, ...].permute(0, 3, 1, 2).float().to(device),
@@ -267,6 +275,7 @@ if __name__ == "__main__":
                     cat_sum_coarse_ssim += coarse_ssim
 
                 if ret["outputs_fine"] is not None:
+                    
                     fine_pred_rgb = ret["outputs_fine"]["rgb"].detach().cpu()
                     fine_pred_rgb_np = np.clip(
                         fine_pred_rgb.numpy(), a_min=0.0, a_max=1.0

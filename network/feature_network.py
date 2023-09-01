@@ -49,97 +49,6 @@ def tconv5x5(in_planes, out_planes, dilation=2):
     )
 
 
-class LatentUpsampler(nn.Module):
-    def __init__(self, type):
-        super(LatentUpsampler, self).__init__()
-        self.relu = nn.ReLU(inplace=True)
-        self.type_upscale = type
-
-        if self.type_upscale == "naive_concat":  # Feature space size: [64x64x512]
-            planes = [256, 128, 64]
-
-            # Conv. for f3 - [256x8x8]
-            self.tconv3 = nn.Sequential(
-                tconv5x5(planes[0], planes[0]),
-                self.relu,
-                tconv5x5(planes[0], planes[0]),
-                self.relu,
-                tconv5x5(planes[0], planes[0]),
-                self.relu,
-            )
-            # Conv. for f2 - [128x16x16]
-            self.tconv2 = nn.Sequential(
-                tconv5x5(planes[1], planes[1]),
-                self.relu,
-                tconv5x5(planes[1], planes[1]),
-                self.relu,
-            )
-            # Conv. for f1 - [64x32x32]
-            self.tconv1 = nn.Sequential(tconv5x5(planes[2], planes[2]), self.relu)
-        elif self.type_upscale == "concat_smart1":  # feature space shape: [128x128x128]
-            inplanes = 256
-            planes = [128, 64, 64, 128]
-
-            self.tconv0 = tconv5x5(
-                inplanes, planes[0]
-            )  # in_channel: 256 , out_channel: 128
-            self.relu = nn.ReLU(inplace=True)
-            self.tconv1 = tconv5x5(
-                inplanes, planes[1]
-            )  # in_channel: 256, out_channel: 64
-            self.tconv2 = tconv5x5(
-                planes[0], planes[2]
-            )  # in_channel: 128, out_channel: 64
-            self.tconv3 = tconv5x5(
-                planes[0], planes[3]
-            )  # in_channel:128, out_channel: 128
-
-        elif self.type_upscale == "concat_smart2":
-            inplanes = 256
-            planes = [128, 64, 64, 256]
-
-            self.tconv0 = tconv5x5(
-                inplanes, planes[0]
-            )  # in_channel: 256 , out_channel: 128
-            self.relu = nn.ReLU(inplace=True)
-            self.tconv1 = tconv5x5(
-                inplanes, planes[1]
-            )  # in_channel: 256, out_channel: 64
-            self.tconv2 = tconv5x5(
-                planes[0], planes[2]
-            )  # in_channel: 128, out_channel: 64
-            self.tconv3 = conv1x1(
-                planes[0], planes[3]
-            )  # in_channel:128, out_channel: 128
-
-    def forward(self, x):
-        # x = [f0,f1,f2,f3] : [64x64x64] - [64x32x32] - [128x16x16] - [256x8x8]
-        f3, f2, f1, f0 = x[3], x[2], x[1], x[0]
-
-        if self.type_upscale == "naive_concat":
-            f3_up = self.tconv3(f3)
-            f2_up = self.tconv2(f2)
-            f1_up = self.tconv1(f1)
-            latent = torch.cat([f0, f1_up, f2_up, f3_up], dim=1)
-
-        else:
-            f3_up = self.tconv0(f3)
-            f3_up = self.relu(f3_up)
-            f2_c = torch.cat([f2, f3_up], dim=1)
-
-            f2_up = self.tconv1(f2_c)
-            f2_up = self.relu(f2_up)
-            f1_c = torch.cat([f1, f2_up], dim=1)
-
-            f1_up = self.tconv2(f1_c)
-            f1_up = self.relu(f1_up)
-            f0_c = torch.cat([f0, f1_up], dim=1)
-
-            f0_up = self.tconv3(f0_c)
-            latent = self.relu(f0_up)
-
-        return latent
-
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -264,8 +173,7 @@ class ResNetSymmLocal(nn.Module):
         upsample_interp="bilinear",
         feature_scale=1.0,
         use_first_pool=True,
-        use_first_layer_as_F=False,
-        learnable_feature_upsampling={},
+       
     ):
         super().__init__()
         # feature_scale factor to scale all latent by. Useful (<1) if image is extremely large, to fit in memory.
@@ -274,9 +182,7 @@ class ResNetSymmLocal(nn.Module):
         self.index_interp = index_interp
         self.index_padding = index_padding
         self.upsample_interp = upsample_interp
-        self.use_first_layer_as_F = use_first_layer_as_F
-        self.learnable_feature_upsampling = learnable_feature_upsampling
-
+       
         self.register_buffer("latent", torch.empty(1, 1, 1, 1), persistent=False)
         self.register_buffer(
             "latent_scaling", torch.empty(2, dtype=torch.float32), persistent=False
@@ -318,9 +224,6 @@ class ResNetSymmLocal(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
-        if self.learnable_feature_upsampling["use"]:
-            type = learnable_feature_upsampling["type"]
-            self.upsamp_F = LatentUpsampler(type)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -396,11 +299,11 @@ class ResNetSymmLocal(nn.Module):
         x = self.relu(x)
 
         latents = [x]
-
         if self.use_first_pool:
             x = self.maxpool(x)
-
+            
         x1 = self.layer1(x)
+       
         latents.append(x1)
 
         x2 = self.layer2(x1)
@@ -410,7 +313,7 @@ class ResNetSymmLocal(nn.Module):
         latents.append(x3)
 
         x4 = self.layer4(x3)
-
+        
         x = self.avgpool(x4)
         x = torch.flatten(x, 1)
         x = self.fc(x)
@@ -427,7 +330,9 @@ class ResNetSymmLocal(nn.Module):
         else:
             align_corners = False if self.index_interp == "nearest" else True
             latent_sz = latents[0].shape[-2:]
+            #print(f'Shape of latent_sz: {latent_sz}')
             for i in range(len(latents)):
+                #print(latents[i].shape)
                 latents[i] = F.interpolate(
                     latents[i],
                     latent_sz,
@@ -561,64 +466,6 @@ class ResNetSymmLocal(nn.Module):
         return ret
 
 
-class ResNetVision(nn.Module):
-    def __init__(self, features):
-        super(ResNetVision, self).__init__()
-
-        self.norm_layer = nn.BatchNorm2d
-
-        self.downsample = nn.Sequential(
-            conv1x1(64, features // 2, 1),
-            self.norm_layer(features // 2, track_running_stats=False, affine=True),
-        )
-
-        self.resnet_backbone = nn.Sequential(
-            nn.Conv2d(
-                3,
-                64,
-                kernel_size=7,
-                stride=2,
-                padding=3,
-                bias=False,
-                padding_mode="reflect",
-            ),
-            self.norm_layer(64, track_running_stats=False, affine=True),
-            nn.ReLU(inplace=True),
-            BasicBlock(
-                64,
-                features // 2,
-                groups=1,
-                downsample=self.downsample,
-                norm_layer=self.norm_layer,
-            ),
-            BasicBlock(
-                features // 2,
-                features // 2,
-                groups=1,
-                downsample=None,
-                norm_layer=self.norm_layer,
-            ),
-            BasicBlock(
-                features // 2,
-                features // 2,
-                groups=1,
-                downsample=None,
-                norm_layer=self.norm_layer,
-            ),
-        )
-
-        self.global_avg = self.avgpool = nn.AdaptiveAvgPool2d(
-            (1, 1)
-        )  # nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Linear(features // 2, features), nn.Linear(features, 2 * features)
-        )
-
-    def forward(self, x):
-        self.latent = self.resnet_backbone(x)
-        latent_flat = self.global_avg(self.latent).squeeze(-1).squeeze(-1)
-        z = self.fc(latent_flat)
-        return z
 
 
 def _resnet_symm_local(arch, latent_dim, block, layers, pretrained, progress, **kwargs):
@@ -638,10 +485,7 @@ def create_resnet_symm_local(
     arch="resnet50", latent_dim=256, pretrained=False, progress=True, **kwargs
 ):
     
-    if arch =='deeplabv3Plus':
-        return 
-    if arch == "resnet-vision":
-        return ResNetVision(features=128)
+    
     if arch == "resnet18":
         return _resnet_symm_local(
             "resnet18",

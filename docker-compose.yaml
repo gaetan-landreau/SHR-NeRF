@@ -8,48 +8,16 @@ services:
       dockerfile: Dockerfile
       target: torch
 
-    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/srns_dataset/cars/baselineDeepV3_HRSkip_padZeros/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
+    command: "tensorboard --logdir /data/logs/to/the/tensorboard --host 0.0.0.0"  
     ports:
       - 6809:6006 # For TensorBoard
     working_dir: /root/
 
     volumes:
+     
+      # Datadrive 
       - type: bind
-        source: /data1/gaetan/PhD/datasets/
-        target: /data/
-
-  tb2 :
-    image: gaetanlandreau/pytorch:nvs
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: torch
-
-    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/srns_dataset/cars/hypernetwork_ensemble_deep_rgb/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
-    ports:
-      - 6812:6006 # For TensorBoard
-    working_dir: /root/
-
-    volumes:
-      - type: bind
-        source: /data1/gaetan/PhD/datasets/
-        target: /data/
-
-  tb3 :
-    image: gaetanlandreau/pytorch:nvs
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: torch
-
-    command: "tensorboard --logdir /data/SymmNeRF-improved/logs/dvr/sn64_oursSkipHR/tensorboard --host 0.0.0.0"  #'tail -f /dev/null'
-    ports:
-      - 6813:6006 # For TensorBoard
-    working_dir: /root/
-
-    volumes:
-      - type: bind
-        source: /data1/gaetan/PhD/datasets/
+        source: /data/datadrive/
         target: /data/
 
   main:
@@ -63,13 +31,13 @@ services:
     shm_size: '4gb'
     
     command: "jupyter-lab --ip=0.0.0.0 --allow-root --no-browser"  
-    #deploy:
-      #resources:
-        #reservations:
-          #devices:
-            #- driver: nvidia
-              #count: 2
-              #capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
     ports:
       - 80:8888 # For JupyterLab 
     working_dir: /root/
@@ -79,17 +47,13 @@ services:
       - PASSWORD=password
     
     volumes:
-      # Jupyter password 
+      
+      # SHR-NERF
       - type: bind
-        source: /home/gaetan/.jupyter
-        target: /root/.jupyter
-
-      # SymmNeRF- Baseline
-      - type: bind
-        source: /home/gaetan/SymmNeRF-improved/
-        target: /root/SymmNeRF-baseline
+        source: /home/SHR-NeRF/
+        target: /root/SHR-NeRF/
         
-      # Datadrive on Athena. 
+      # Datadrive 
       - type: bind
-        source: /data1/gaetan/PhD/datasets/
+        source: /data/datadrive/
         target: /data/
